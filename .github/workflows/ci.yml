@@ -175,7 +175,7 @@ jobs:
          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
         run: |
-           VERSION=${{ needs.release.outputs.new_release_version }}
+           VERSION=${GITHUB_SHA::8}
            BRANCH="update-images-${VERSION}"
            cd gitops
            git config user.email "chimdi247@gmail.com"
