@@ -90,9 +90,9 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "IMAGE_TAG=pr-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=pr-${GITHUB_SHA}" >> $GITHUB_OUTPUT
           else
-          echo "IMAGE_TAG=${{ needs.release.outputs.new_release_version }}" >> $GITHUB_OUTPUT
+           echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
           fi
       - name: build docker image
         run: |
@@ -140,7 +140,7 @@ jobs:
           path: gitops
       - name: Update Image Tag
         run: |
-          VERSION=${{ needs.release.outputs.new_release_version }}
+          VERSION=${GITHUB_SHA::8}
           cd gitops
           for service in events-api bookings-worker dashboard admin-api; do
             FILE="manifests/${service}/deployment.yaml"
