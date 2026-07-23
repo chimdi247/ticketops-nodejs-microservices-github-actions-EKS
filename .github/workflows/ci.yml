@@ -1,0 +1,194 @@
+name: ci/cd-pipeline
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "main"
+permissions:
+  id-token: write
+  contents: write
+  issues: write
+  pull-requests: write
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REGISTRY: 319602347522.dkr.ecr.eu-west-2.amazonaws.com
+jobs:
+  release:
+    name: Semantic release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      new_release_published: ${{ steps.release.outputs.new_release_published }}
+      new_release_version: ${{ steps.release.outputs.new_release_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup nodejs
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install semantic release
+        run: |
+          npm install -g semantic-release \
+          @semantic-release/commit-analyzer \
+          @semantic-release/release-notes-generator \
+          @semantic-release/github
+      - name: run semantic-release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUTPUT=$(semantic-release --dry-run 2>&1)
+          echo $OUTPUT
+          VERSION=$(echo "$OUTPUT" | grep -oP 'next release version is \K[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+           if [ -n "$VERSION" ]; then
+            echo "new_release_published=true" >> $GITHUB_OUTPUT
+            echo "new_release_version=v$VERSION" >> $GITHUB_OUTPUT
+            semantic-release
+          else
+            echo "new_release_published=false" >> $GITHUB_OUTPUT
+            echo "new_release_version=" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-push:
+    name: push and build the image to ecr
+    runs-on: ubuntu-latest
+    needs: release
+    if: |
+       always() && (
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && needs.release.outputs.new_release_published == 'true')
+        )
+    strategy:
+      matrix:
+        service:
+          - name: events-api
+            context: ./apps/events-api
+          - name: bookings-worker
+            context: ./apps/bookings-worker
+          - name: dashboard
+            context: ./apps/dashboard
+          - name: admin-api
+            context: ./apps/admin-api
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: login to aws
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: set image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "IMAGE_TAG=pr-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          else
+          echo "IMAGE_TAG=${{ needs.release.outputs.new_release_version }}" >> $GITHUB_OUTPUT
+          fi
+      - name: build docker image
+        run: |
+          docker build \
+          -t ${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}:${{ steps.tag.outputs.IMAGE_TAG }} \
+          -t ${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}:latest \
+           ${{ matrix.service.context }}
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}:${{ steps.tag.outputs.IMAGE_TAG }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+      - name: Push to ECR
+        if: github.event_name == 'push'
+        run: |
+            docker push ${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}:${{ steps.tag.outputs.IMAGE_TAG }}
+            docker push ${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}:latest
+      - name: Install Cosign
+        if: github.event_name == 'push'
+        uses: sigstore/cosign-installer@v3
+      - name: Sign Image with Co-Sign
+        if: github.event_name == 'push'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          IMAGE="${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}:${{ steps.tag.outputs.IMAGE_TAG }}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE | cut -d@ -f2)
+          cosign sign --yes \
+           "${{ env.ECR_REGISTRY }}/ticketops-dev-${{ matrix.service.name }}@${DIGEST}"
+
+  update-gitops:
+    name: Update Gitops repo
+    runs-on: ubuntu-latest
+    needs: [release, build-and-push]
+    if: github.event_name == 'push' && needs.release.outputs.new_release_published == 'true'
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@v4
+        with:
+          repository: chimdi247/ticketops-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+      - name: Update Image Tag
+        run: |
+          VERSION=${{ needs.release.outputs.new_release_version }}
+          cd gitops
+          for service in events-api bookings-worker dashboard admin-api; do
+            FILE="manifests/${service}/deployment.yaml"
+            ROLLOUT_FILE="manifests/${service}/rollout.yaml"
+            if [ -f "$FILE" ]; then
+              sed -i "s|ticketops-dev-${service}:v[0-9]*\.[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ticketops-dev-${service}:${VERSION}|g" "$FILE"
+              sed -i "s|ticketops-dev-${service}@sha256:[a-f0-9]*|ticketops-dev-${service}:${VERSION}|g" "$FILE"
+              sed -i "s|ticketops-dev-${service}:v[0-9]*\.[0-9]*\.[0-9]*$|ticketops-dev-${service}:${VERSION}|g" "$FILE"
+              echo "Updated ${service} deployment to ${VERSION}"
+            fi
+            if [ -f "$ROLLOUT_FILE" ]; then
+              sed -i "s|ticketops-dev-${service}:v[0-9]*\.[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ticketops-dev-${service}:${VERSION}|g" "$ROLLOUT_FILE"
+              sed -i "s|ticketops-dev-events-api:v[0-9]*\.[0-9]*\.[0-9]*\"|ticketops-dev-events-api:${VERSION}\"|g" "$ROLLOUT_FILE"
+              sed -i "s|ticketops-dev-${service}:v[0-9]*\.[0-9]*\.[0-9]*$|ticketops-dev-${service}:${VERSION}|g" "$ROLLOUT_FILE"
+              echo "Updated ${service} rollout to ${VERSION}"
+            fi
+          done
+
+          sed -i "s|ticketops-dev-events-api:v[0-9]*\.[0-9]*\.[0-9]*@sha256:[a-f0-9]*|ticketops-dev-events-api:${VERSION}|g" \
+            manifests/jobs/db-migrate.yaml \
+            manifests/jobs/seat-lock-expiry.yaml
+          sed -i "s|ticketops-dev-events-api@sha256:[a-f0-9]*|ticketops-dev-events-api:${VERSION}|g" \
+            manifests/jobs/db-migrate.yaml \
+            manifests/jobs/seat-lock-expiry.yaml
+          sed -i "s|ticketops-dev-events-api:v[0-9]*\.[0-9]*\.[0-9]*$|ticketops-dev-events-api:${VERSION}|g" \
+            manifests/jobs/db-migrate.yaml \
+            manifests/jobs/seat-lock-expiry.yaml
+          echo "Updated jobs to ${VERSION}"
+
+      - name: Create PR
+        env:
+         GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+         GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+           VERSION=${{ needs.release.outputs.new_release_version }}
+           BRANCH="update-images-${VERSION}"
+           cd gitops
+           git config user.email "chimdi247@gmail.com"
+           git config user.name "chimdi247"
+           git remote set-url origin https://x-access-token:${GITOPS_TOKEN}@github.com/chimdi247/ticketops-gitops.git
+           git checkout -b $BRANCH
+           git add .
+           if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+           fi
+           git commit -m "chore: update all services to ${VERSION}"
+           git push origin $BRANCH
+           gh pr create \
+             --title "chore: update all services to ${VERSION}" \
+             --body "Automated image update from the CI pipeline. Version: ${VERSION}" \
+             --base main \
+             --head $BRANCH
