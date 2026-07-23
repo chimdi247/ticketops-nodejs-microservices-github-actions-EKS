@@ -59,7 +59,7 @@ jobs:
     name: push and build the image to ecr
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'pull_request'
-  #  needs: releases
+  #  needs: release
   #  if: |
   #     always() && (
   #      github.event_name == 'pull_request' ||
