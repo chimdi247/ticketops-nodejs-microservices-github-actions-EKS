@@ -90,9 +90,9 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "IMAGE_TAG=pr-${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=pr-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
           else
-           echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+           echo "IMAGE_TAG=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
           fi
       - name: build docker image
         run: |
