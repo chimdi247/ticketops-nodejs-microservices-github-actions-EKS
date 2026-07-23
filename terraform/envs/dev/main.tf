@@ -90,14 +90,14 @@ module "secrets_rotation" {
   vpc_id                = module.vpc.vpc_id
   private_subnet_ids    = module.vpc.private_subnet_ids
   secret_arn            = module.rds.db_password_secret_arn
- rds_security_group_id = tolist(module.rds.rds_security_group_id)[0]
+  rds_security_group_id = tolist(module.rds.rds_security_group_id)[0]
 }
 
 module "route53" {
-  source = "../../modules/route53"
-  domain_name = "wsedf.online"
+  source         = "../../modules/route53"
+  domain_name    = "wsedf.online"
   subdomain_name = "ticketops"
-  alb_dns_name = "k8s-ticketop-ticketop-beac6174a2-1892759112.eu-west-2.elb.amazonaws.com"
+  alb_dns_name   = "k8s-ticketop-ticketop-beac6174a2-1892759112.eu-west-2.elb.amazonaws.com"
 }
 
 module "s3_qr_codes" {

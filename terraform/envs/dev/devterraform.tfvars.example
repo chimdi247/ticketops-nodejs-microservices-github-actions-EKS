@@ -1,0 +1,62 @@
+###########################################
+# AWS Networking
+###########################################
+
+vpc_cidr = "10.0.0.0/16"
+
+availablity_zones = [
+  "eu-west-2a",
+  "eu-west-2b"
+]
+
+public_subnets_cidrs = [
+  "10.0.1.0/24",
+  "10.0.2.0/24"
+]
+
+private_subnet_cidrs = [
+  "10.0.11.0/24",
+  "10.0.12.0/24"
+]
+
+###########################################
+# Project Settings
+###########################################
+
+project = "ticketops"
+env     = "dev"
+
+###########################################
+# GitHub
+###########################################
+
+github_org  = "YOUR_GITHUB_USERNAME_OR_ORG"
+github_repo = "ticketops-nodejs-microservices-github-actions-EKS"
+
+###########################################
+# AWS Account
+###########################################
+
+aws_account_id = "123456789012"
+
+###########################################
+# RDS Database
+###########################################
+
+db_name     = "ticketops"
+db_username = "postgres"
+db_password = "ChangeMeToAStrongPassword123!"
+
+db_allocated_storage = 20
+
+###########################################
+# Application Admin
+###########################################
+
+admin_password = "ChangeMeToAStrongPassword123!"
+
+###########################################
+# Alertmanager Slack Webhook
+###########################################
+
+slack_webhook_url = "<YOUR_SLACK_WEBHOOK_URL>"

@@ -1,21 +1,21 @@
 variable "vpc_cidr" {
-   description = "CIDR block for VPC"
+  description = "CIDR block for VPC"
   type        = string
 }
 
 variable "availablity_zones" {
   description = "availability zones"
-  type = list(string)
+  type        = list(string)
 }
 
 variable "public_subnets_cidrs" {
   description = "Public subnet cidrs"
-  type = list(string)
+  type        = list(string)
 }
 
 variable "private_subnet_cidrs" {
-   description = "Private subnet cidrs"
-  type = list(string)
+  description = "Private subnet cidrs"
+  type        = list(string)
 }
 
 variable "project" {
@@ -24,43 +24,43 @@ variable "project" {
 }
 
 variable "env" {
-   description = "Environment name"
+  description = "Environment name"
   type        = string
 }
 variable "github_repo" {
-   description = "GitHub repository name"
-   type        = string
+  description = "GitHub repository name"
+  type        = string
 }
 
 variable "aws_account_id" {
-   description = "AWS account ID"
+  description = "AWS account ID"
   type        = string
 }
 
 variable "github_org" {
   description = "github organization or user name"
-  type = string
+  type        = string
 }
 
 
 variable "db_username" {
-   description = "RDS master password"
-  type = string
+  description = "RDS master password"
+  type        = string
 }
 
 variable "db_password" {
-   description = "RDS master password"
-  type = string
+  description = "RDS master password"
+  type        = string
 }
 
 variable "db_name" {
-    description = "RDS DB"
-  type = string
+  description = "RDS DB"
+  type        = string
 }
 variable "db_allocated_storage" {
-    description = "allocated db storage"
-  type = number
-  default = 20
+  description = "allocated db storage"
+  type        = number
+  default     = 20
 }
 
 variable "admin_password" {
