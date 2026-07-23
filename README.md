@@ -1,4 +1,4 @@
-# TicketOps Platform
+# TicketOps Platforms
 
 A production-grade event ticketing system running on AWS EKS. Built to simulate how a real SaaS company runs its infrastructure — GitOps, observability, security policies, progressive delivery, the works.
 
