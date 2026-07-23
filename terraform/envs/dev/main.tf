@@ -81,16 +81,18 @@ module "velero" {
   env             = var.env
   project         = var.project
   eks_oidc_issuer = local.eks_oidc_issuer
+  eks_oidc_arn    = local.eks_oidc_arn
 }
 
 module "secrets_rotation" {
-  source                = "../../modules/secrets-rotation"
-  project               = var.project
-  env                   = var.env
-  vpc_id                = module.vpc.vpc_id
-  private_subnet_ids    = module.vpc.private_subnet_ids
-  secret_arn            = module.rds.db_password_secret_arn
-  rds_security_group_id = tolist(module.rds.rds_security_group_id)[0]
+   count = 0
+   source                = "../../modules/secrets-rotation"
+   project               = var.project
+   env                   = var.env
+   vpc_id                = module.vpc.vpc_id
+   private_subnet_ids    = module.vpc.private_subnet_ids
+   secret_arn            = module.rds.db_password_secret_arn
+   rds_security_group_id = tolist(module.rds.rds_security_group_id)[0]
 }
 
 module "route53" {
@@ -104,5 +106,5 @@ module "s3_qr_codes" {
   source      = "../../modules/s3"
   project     = var.project
   env         = var.env
-  bucket_name = "qr-codes"
+  bucket_name = "qr-codes-chimdi"
 }

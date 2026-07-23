@@ -29,7 +29,7 @@ resource "aws_s3_bucket_public_access_block" "velero" {
   block_public_policy = true
   ignore_public_acls  = true
   restrict_public_buckets = true
-  
+
 }
 
 resource "aws_iam_role" "velero" {
@@ -40,7 +40,7 @@ resource "aws_iam_role" "velero" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.eks.arn
+          Federated = var.eks_oidc_arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
@@ -91,7 +91,7 @@ resource "aws_iam_role_policy" "velero" {
           "ec2:CreateTags"
         ]
       Resource = "*"
-    
+
 
       }
     ]
@@ -101,6 +101,6 @@ resource "aws_iam_role_policy" "velero" {
 
 
 # Look up EKS OIDC provider
-data "aws_iam_openid_connect_provider" "eks" {
-  url = "https://${var.eks_oidc_issuer}"
-}
+# data "aws_iam_openid_connect_provider" "eks" {
+#  url = "https://${var.eks_oidc_issuer}"
+# }

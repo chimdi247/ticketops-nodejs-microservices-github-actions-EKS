@@ -6,3 +6,7 @@ variable "velero_sa_name" {
   type    = string
   default = "velero-server"
 }
+
+variable "eks_oidc_arn" {
+  type = string
+}
