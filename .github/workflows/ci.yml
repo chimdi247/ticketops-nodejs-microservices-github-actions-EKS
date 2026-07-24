@@ -180,16 +180,17 @@ jobs:
            cd gitops
            git config user.email "chimdi247@gmail.com"
            git config user.name "chimdi247"
-           git checkout -b $BRANCH
+           git remote set-url origin "https://x-access-token:${GITOPS_TOKEN}@github.com/chimdi247/ticketops-gitops.git"
+           git checkout -b "$BRANCH"
            git add .
            if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
            fi
            git commit -m "chore: update all services to ${VERSION}"
-           git push origin $BRANCH
+           git push origin "$BRANCH"
            gh pr create \
              --title "chore: update all services to ${VERSION}" \
              --body "Automated image update from the CI pipeline. Version: ${VERSION}" \
              --base main \
-             --head $BRANCH
+             --head "$BRANCH"
