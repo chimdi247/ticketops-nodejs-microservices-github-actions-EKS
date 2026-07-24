@@ -8,7 +8,7 @@ A production-grade event ticketing system running on AWS EKS. Built to simulate 
 
 ---
 
-## Architecture
+## Architectures
 
 ![Architecture](docs/architecture/architecture.png)
 
