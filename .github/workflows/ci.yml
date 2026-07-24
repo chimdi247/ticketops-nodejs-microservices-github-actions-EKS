@@ -180,7 +180,7 @@ jobs:
            cd gitops
            git config user.email "chimdi247@gmail.com"
            git config user.name "chimdi247"
-           git remote set-url origin https://x-access-token:${GITOPS_TOKEN}@github.com/chimdi247/ticketops-gitops.git
+           git remote set-url origin "https://x-access-token:${GITOPS_TOKEN}@github.com/chimdi247/ticketops-gitops.git"
            git checkout -b $BRANCH
            git add .
            if git diff --staged --quiet; then
