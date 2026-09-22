@@ -97,7 +97,7 @@ module "secrets_rotation" {
 
 module "route53" {
   source         = "../../modules/route53"
-  domain_name    = "wsedf.online"
+  domain_name    = "vhbj.site"
   subdomain_name = "ticketops"
   alb_dns_name   = "k8s-ticketop-ticketop-beac6174a2-1892759112.eu-west-2.elb.amazonaws.com"
 }
@@ -106,5 +106,5 @@ module "s3_qr_codes" {
   source      = "../../modules/s3"
   project     = var.project
   env         = var.env
-  bucket_name = "qr-codes-chimdi"
+  bucket_name = "ticketops-qr-codes-247"
 }

@@ -1,9 +1,9 @@
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 const logger = require('../utils/logger');
- 
-const ses = new SESClient({ region: process.env.AWS_REGION || 'ap-south-1' });
-const FROM = process.env.SES_FROM_EMAIL || 'noreply@ticketops.com';
- 
+
+const ses = new SESClient({ region: process.env.AWS_REGION || 'eu-west-2' });
+const FROM = process.env.SES_FROM_EMAIL || 'chimdi247@gmail.com';
+
 const sendConfirmationEmail = async ({ customer_email, customer_name, booking_ref, event_title, seats, qr_url }) => {
   const params = {
     Source: FROM,
@@ -28,9 +28,9 @@ const sendConfirmationEmail = async ({ customer_email, customer_name, booking_re
       },
     },
   };
- 
+
   await ses.send(new SendEmailCommand(params));
   logger.info({ message: 'confirmation email sent', booking_ref, customer_email });
 };
- 
+
 module.exports = { sendConfirmationEmail };

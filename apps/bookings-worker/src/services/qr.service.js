@@ -3,8 +3,8 @@ const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/clien
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const logger = require('../utils/logger');
 
-const s3 = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-const BUCKET = process.env.AWS_S3_BUCKET || 'ticketops-qr-codes';
+const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-2' });
+const BUCKET = process.env.AWS_S3_BUCKET || 'ticketops-qr-codes-247';
 
 // generate QR code PNG buffer from booking data
 const generateQR = async (bookingData) => {

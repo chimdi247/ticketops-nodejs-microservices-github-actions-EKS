@@ -30,7 +30,7 @@ const AdminPage = () => {
             {TITLES[view]}
           </div>
           <div style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>
-            TicketOps Admin · EKS cluster: ap-south-1
+            TicketOps Admin · EKS cluster: eu-west-2
           </div>
         </div>
 

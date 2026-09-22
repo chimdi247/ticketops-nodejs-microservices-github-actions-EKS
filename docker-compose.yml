@@ -69,8 +69,8 @@ services:
       REDIS_PORT: 6379
       QUEUE_NAME: bookings:queue
       AWS_REGION: eu-west-2
-      AWS_S3_BUCKET: ticketops-qr-codes
-      SES_FROM_EMAIL: noreply@ticketops.com
+      AWS_S3_BUCKET: ticketops-qr-codes-247
+      SES_FROM_EMAIL: chimdi247@gmail.com
       LOG_LEVEL: info
     depends_on:
       postgres:

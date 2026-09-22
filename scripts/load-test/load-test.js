@@ -22,7 +22,7 @@ export const options = {
   },
 };
 
-const BASE_URL = 'http://ticketops.wsedf.online';
+const BASE_URL = 'http://ticketops.vhbj.site';
 
 function randomSeat() {
   const letters = 'ABCDE';
