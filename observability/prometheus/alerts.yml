@@ -1,0 +1,106 @@
+groups:
+  # ── Resource utilization — fires when CPU or memory > 50% ──
+  - name: resource-utilization
+    rules:
+      - alert: HostHighCPUUsage
+        expr: (100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)) > 50
+        for: 1m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: "Host CPU usage above 50% ({{ $labels.instance }})"
+          description: "Host CPU utilization is {{ printf \"%.1f\" $value }}%, above the 50% threshold for 1m."
+
+      - alert: HostHighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 50
+        for: 1m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: "Host memory usage above 50% ({{ $labels.instance }})"
+          description: "Host memory utilization is {{ printf \"%.1f\" $value }}%, above the 50% threshold for 1m."
+
+      - alert: ContainerHighCPUUsage
+        expr: (sum by (name) (rate(container_cpu_usage_seconds_total{name=~"ticketops-.+"}[2m])) * 100) > 50
+        for: 1m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: "Container {{ $labels.name }} CPU usage above 50%"
+          description: "Container {{ $labels.name }} CPU utilization is {{ printf \"%.1f\" $value }}%, above the 50% threshold for 1m."
+
+      - alert: ContainerHighMemoryUsage
+        expr: (container_memory_working_set_bytes{name=~"ticketops-.+"} / container_spec_memory_limit_bytes{name=~"ticketops-.+"} * 100) > 50 and container_spec_memory_limit_bytes{name=~"ticketops-.+"} > 0
+        for: 1m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: "Container {{ $labels.name }} memory usage above 50%"
+          description: "Container {{ $labels.name }} memory utilization is {{ printf \"%.1f\" $value }}%, above the 50% threshold for 1m."
+
+  # ── Service health / SLO ──
+  - name: service-health
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"events-api|admin-api|bookings-worker"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.job }} ({{ $labels.instance }}) has been unreachable for 30s or more."
+
+      - alert: EventsApiHighErrorRate
+        expr: (sum(rate(ticketops_http_requests_total{status_code=~"5.."}[5m])) / sum(rate(ticketops_http_requests_total[5m]))) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: slo
+        annotations:
+          summary: "events-api 5xx error rate above 5%"
+          description: "events-api error rate is {{ printf \"%.2f\" $value }}% over the last 5m (SLO: <5%)."
+
+      - alert: AdminApiHighErrorRate
+        expr: (sum(rate(ticketops_admin_http_requests_total{status_code=~"5.."}[5m])) / sum(rate(ticketops_admin_http_requests_total[5m]))) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: slo
+        annotations:
+          summary: "admin-api 5xx error rate above 5%"
+          description: "admin-api error rate is {{ printf \"%.2f\" $value }}% over the last 5m (SLO: <5%)."
+
+      - alert: EventsApiHighLatencyP99
+        expr: histogram_quantile(0.99, sum by (le) (rate(ticketops_http_duration_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          category: slo
+        annotations:
+          summary: "events-api P99 latency above 500ms"
+          description: "events-api P99 latency is {{ printf \"%.2f\" $value }}s over the last 5m (SLO: <500ms)."
+
+      - alert: BookingsWorkerJobFailuresHigh
+        expr: (sum(rate(ticketops_worker_jobs_processed_total{status="failed"}[5m])) / sum(rate(ticketops_worker_jobs_processed_total[5m]))) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: slo
+        annotations:
+          summary: "bookings-worker job failure rate above 5%"
+          description: "bookings-worker job failure rate is {{ printf \"%.2f\" $value }}% over the last 5m."
+
+      - alert: BookingsWorkerQueueBacklog
+        expr: ticketops_worker_queue_depth > 500
+        for: 2m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: "bookings-worker queue backlog growing"
+          description: "bookings:queue depth is {{ $value }} jobs, worker may be falling behind."

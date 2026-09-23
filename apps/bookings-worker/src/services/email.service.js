@@ -1,7 +1,14 @@
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 const logger = require('../utils/logger');
 
-const ses = new SESClient({ region: process.env.AWS_REGION || 'eu-west-2' });
+// AWS_SES_ENDPOINT lets this point at LocalStack for docker-compose/local
+// dev, where SES calls are accepted/logged but no real email is sent.
+// When unset, this behaves exactly as before and talks to real AWS SES.
+const sesEndpoint = process.env.AWS_SES_ENDPOINT;
+const ses = new SESClient({
+  region: process.env.AWS_REGION || 'eu-west-2',
+  ...(sesEndpoint ? { endpoint: sesEndpoint } : {}),
+});
 const FROM = process.env.SES_FROM_EMAIL || 'chimdi247@gmail.com';
 
 const sendConfirmationEmail = async ({ customer_email, customer_name, booking_ref, event_title, seats, qr_url }) => {

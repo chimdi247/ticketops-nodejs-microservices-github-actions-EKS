@@ -1,0 +1,66 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+  scrape_timeout: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/rules/alerts.yml
+
+scrape_configs:
+  # Prometheus scraping itself
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # events-api — booking + events HTTP service
+  - job_name: events-api
+    metrics_path: /metrics
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['events-api:3000']
+        labels:
+          service: events-api
+
+  # admin-api — internal admin/JWT service
+  - job_name: admin-api
+    metrics_path: /metrics
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['admin-api:4000']
+        labels:
+          service: admin-api
+
+  # bookings-worker — async job processor, metrics on 9090
+  - job_name: bookings-worker
+    metrics_path: /metrics
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['bookings-worker:9090']
+        labels:
+          service: bookings-worker
+
+  # otel-collector self-telemetry
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8888']
+        labels:
+          service: otel-collector
+
+  # host-level CPU / memory / disk / network
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: node-exporter
+
+  # per-container CPU / memory (docker containers = our "nodes" in compose)
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          service: cadvisor

@@ -4,22 +4,29 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # In docker-compose these resolve via the compose network's DNS
+    # (service name = hostname). EVENTS_API_UPSTREAM / ADMIN_API_UPSTREAM
+    # are injected as environment variables and substituted into this
+    # template by the nginx image's docker-entrypoint at container start.
     location /api/ {
-        proxy_pass http://events-api-service:80/api/;
+        proxy_pass ${EVENTS_API_UPSTREAM}/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     location /admin/ {
-        proxy_pass http://admin-api-service:80/admin/;
+        proxy_pass ${ADMIN_API_UPSTREAM}/admin/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     location /auth/ {
-        proxy_pass http://admin-api-service:80/auth/;
+        proxy_pass ${ADMIN_API_UPSTREAM}/auth/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     location / {

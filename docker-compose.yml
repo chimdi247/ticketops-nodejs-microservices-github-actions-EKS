@@ -1,5 +1,50 @@
-version: '3.8'
+# ──────────────────────────────────────────────────────────────────────────
+# TicketOps — single-file local stack
+#
+#   docker compose up -d --build
+#
+# Brings up the full app (postgres, redis, localstack, events-api,
+# admin-api, bookings-worker, dashboard) plus the full observability stack
+# (otel-collector, tempo, loki, promtail, prometheus, alertmanager,
+# node-exporter, cadvisor, grafana).
+#
+#   Dashboard  → http://localhost:5173          (booking flow + /admin)
+#   Admin login → admin@example.com / password123  (seeded automatically)
+#   Redis UI   → http://localhost:8082          (admin / admin)
+#   Grafana    → http://localhost:3001          (admin / admin)
+#   Mail inbox → http://localhost:8025          (alert emails land here)
+#   Prometheus → http://localhost:9090
+#   Alertmanager → http://localhost:9093
+#
+# See LOCAL_DEV.md for full details, troubleshooting and the test/ scripts.
+# ──────────────────────────────────────────────────────────────────────────
+
+networks:
+  ticketops-network:
+    name: ticketops-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  localstack_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  loki_data:
+    driver: local
+  tempo_data:
+    driver: local
+
 services:
+  # ══════════════════════════════════════════════════════════════════════
+  # Data stores
+  # ══════════════════════════════════════════════════════════════════════
+
   postgres:
     image: postgres:16-alpine
     container_name: ticketops-postgres
@@ -11,27 +56,88 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./apps/events-api/src/models/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      # Everything in /docker-entrypoint-initdb.d/ runs once, alphabetically,
+      # the first time this volume is initialized — this is "the file that
+      # creates all necessary tables when the containers are up and running".
+      - ./apps/events-api/src/models/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./db/init/002-admins.sql:/docker-entrypoint-initdb.d/002-admins.sql:ro
+    networks: [ticketops-network]
+    mem_limit: 512m
+    cpus: 0.5
     healthcheck:
       test: ["CMD-SHELL","pg_isready -U ticketops"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: ticketops-redis
     ports:
       - "6379:6379"
+    networks: [ticketops-network]
+    mem_limit: 256m
+    cpus: 0.25
     healthcheck:
       test: ["CMD","redis-cli","ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  # Web UI for browsing/editing Redis — seat locks (seat:held:*) and the
+  # bookings:queue list are the main things worth poking at here.
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: ticketops-redis-commander
+    environment:
+      REDIS_HOSTS: local:redis:6379
+      HTTP_USER: admin
+      HTTP_PASSWORD: admin
+    ports:
+      - "8082:8081"
+    networks: [ticketops-network]
+    mem_limit: 128m
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Local S3 + SES emulator so bookings-worker's QR-upload / confirmation
+  # email flow works end-to-end without real AWS credentials.
+  localstack:
+    image: localstack/localstack:3.7
+    container_name: ticketops-localstack
+    environment:
+      SERVICES: s3,ses
+      DEFAULT_REGION: eu-west-2
+      AWS_S3_BUCKET: ticketops-qr-codes-247
+      SES_FROM_EMAIL: chimdi247@gmail.com
+      PERSISTENCE: 0
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./scripts/localstack-init:/etc/localstack/init/ready.d:ro
+    networks: [ticketops-network]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD","curl","-f","http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Application services
+  # ══════════════════════════════════════════════════════════════════════
 
   events-api:
     build:
       context: ./apps/events-api
+    image: ticketops/events-api:local
     container_name: ticketops-events-api
     ports:
       - "3000:3000"
@@ -47,16 +153,100 @@ services:
       REDIS_PORT: 6379
       SEAT_LOCK_TTL: 600
       LOG_LEVEL: info
+      # OpenTelemetry auto-instrumentation → otel-collector → Tempo
+      OTEL_SERVICE_NAME: events-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [ticketops-network]
+    mem_limit: 512m
+    cpus: 0.5
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: on-failure
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    labels:
+      - "com.ticketops.service=events-api"
+
+  admin-api:
+    build:
+      context: ./apps/admin-api
+    image: ticketops/admin-api:local
+    container_name: ticketops-admin-api
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ticketops
+      DB_USER: ticketops
+      DB_PASSWORD: ticketops
+      JWT_SECRET: local-dev-secret-change-in-production
+      # env-based fallback login, only used if the DB admins table lookup
+      # fails (e.g. seed job hasn't completed yet) — see auth.controller.js
+      ADMIN_EMAIL: admin@ticketops.com
+      ADMIN_PASSWORD: Admin#2026!
+      LOG_LEVEL: info
+      OTEL_SERVICE_NAME: admin-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [ticketops-network]
+    mem_limit: 512m
+    cpus: 0.5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-seed-admin:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:4000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    labels:
+      - "com.ticketops.service=admin-api"
+
+  # One-off job: creates the admins table (defensively — normally already
+  # created by db/init/002-admins.sql) and seeds the default admin login
+  # with a bcrypt-hashed password. Runs once per `docker compose up` and
+  # exits; admin-api waits for it to finish successfully before starting.
+  db-seed-admin:
+    image: ticketops/admin-api:local
+    container_name: ticketops-db-seed-admin
+    command: ["node", "src/scripts/seedAdmin.js"]
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ticketops
+      DB_USER: ticketops
+      DB_PASSWORD: ticketops
+      ADMIN_SEED_EMAIL: admin@example.com
+      ADMIN_SEED_PASSWORD: password123
+      LOG_LEVEL: info
+    networks: [ticketops-network]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   bookings-worker:
     build:
       context: ./apps/bookings-worker
+    image: ticketops/bookings-worker:local
     container_name: ticketops-bookings-worker
     environment:
       NODE_ENV: development
@@ -70,49 +260,274 @@ services:
       QUEUE_NAME: bookings:queue
       AWS_REGION: eu-west-2
       AWS_S3_BUCKET: ticketops-qr-codes-247
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      # points the AWS SDK at LocalStack instead of real AWS for local dev
+      AWS_S3_ENDPOINT: http://localstack:4566
+      AWS_SES_ENDPOINT: http://localstack:4566
       SES_FROM_EMAIL: chimdi247@gmail.com
       LOG_LEVEL: info
+      OTEL_SERVICE_NAME: bookings-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [ticketops-network]
+    mem_limit: 512m
+    cpus: 0.5
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: on-failure
-
-  admin-api:
-    build:
-      context: ./apps/admin-api
-    container_name: ticketops-admin-api
-    ports:
-      - "4000:4000"
-    environment:
-      PORT: 4000
-      NODE_ENV: development
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ticketops
-      DB_USER: ticketops
-      DB_PASSWORD: ticketops
-      JWT_SECRET: local-dev-secret-change-in-production
-      ADMIN_EMAIL: admin@ticketops.com
-      ADMIN_PASSWORD: Admin#2026!
-      LOG_LEVEL: info
-    depends_on:
-      postgres:
+      localstack:
         condition: service_healthy
-    restart: on-failure
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:9090/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    labels:
+      - "com.ticketops.service=bookings-worker"
 
   dashboard:
     build:
       context: ./apps/dashboard
+    image: ticketops/dashboard:local
     container_name: ticketops-dashboard
     ports:
-      - "5173:80"
+      - "5173:8080"
+    environment:
+      # substituted into nginx/default.conf.template at container start
+      EVENTS_API_UPSTREAM: http://events-api:3000
+      ADMIN_API_UPSTREAM: http://admin-api:4000
+    networks: [ticketops-network]
+    mem_limit: 128m
+    cpus: 0.25
+    depends_on:
+      events-api:
+        condition: service_healthy
+      admin-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    labels:
+      - "com.ticketops.service=dashboard"
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Observability — traces
+  # ══════════════════════════════════════════════════════════════════════
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.110.0
+    container_name: ticketops-otel-collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./observability/otel-collector/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks: [ticketops-network]
+    mem_limit: 256m
+    depends_on:
+      tempo:
+        condition: service_started
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: ticketops-tempo
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks: [ticketops-network]
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Observability — logs
+  # ══════════════════════════════════════════════════════════════════════
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: ticketops-loki
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks: [ticketops-network]
+    mem_limit: 512m
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: ticketops-promtail
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks: [ticketops-network]
+    mem_limit: 128m
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Observability — metrics, alerting, dashboards
+  # ══════════════════════════════════════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ticketops-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-remote-write-receiver
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/rules/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [ticketops-network]
+    mem_limit: 512m
     depends_on:
       - events-api
       - admin-api
-    restart: on-failure
+      - bookings-worker
+      - node-exporter
+      - cadvisor
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
 
-volumes:
-  postgres_data:
-    driver: local
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ticketops-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks: [ticketops-network]
+    mem_limit: 128m
+    depends_on:
+      mailpit:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # host-level CPU / memory / disk / network ("node" metrics)
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: ticketops-node-exporter
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro,rslave
+    pid: host
+    ports:
+      - "9100:9100"
+    networks: [ticketops-network]
+    mem_limit: 128m
+    restart: unless-stopped
+
+  # per-container CPU / memory for every service in this compose project
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: ticketops-cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8081:8080"
+    networks: [ticketops-network]
+    mem_limit: 256m
+    restart: unless-stopped
+
+  # Local SMTP catcher — Grafana and Alertmanager both send alert emails
+  # here instead of out to the real internet. Web inbox at :8025.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: ticketops-mailpit
+    ports:
+      - "8025:8025"   # web inbox
+      - "1025:1025"   # SMTP
+    networks: [ticketops-network]
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:8025/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: ticketops-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor"
+      GF_INSTALL_PLUGINS: ""
+      # Grafana-managed alert notifications (see
+      # observability/grafana/provisioning/alerting/contactpoints.yml)
+      # route through Mailpit, viewable at http://localhost:8025
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: mailpit:1025
+      GF_SMTP_FROM_ADDRESS: alerts@ticketops.local
+      GF_SMTP_FROM_NAME: TicketOps Grafana
+      GF_SMTP_SKIP_VERIFY: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    networks: [ticketops-network]
+    mem_limit: 256m
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+      - alertmanager
+      - mailpit
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped

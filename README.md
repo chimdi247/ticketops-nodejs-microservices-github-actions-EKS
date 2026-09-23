@@ -274,12 +274,25 @@ Results and screenshots in `docs/load-test-results/`.
 ## Local development
 
 ```bash
-# Start everything
-docker compose up -d
+# Start everything — app + full observability stack (Prometheus, Grafana,
+# Loki, Tempo, Alertmanager, OpenTelemetry Collector, node-exporter, cAdvisor)
+docker compose up -d --build
 
-# The booking flow works end to end locally
+# The booking flow works end to end locally, including QR generation and
+# "email" confirmation via a local LocalStack S3/SES emulator
 # Browse events → select seat → book → confirm → check admin panel
+
+# Admin login (seeded automatically, password bcrypt-hashed in Postgres):
+#   admin@example.com / password123
+
+# Grafana: http://localhost:3001 (admin/admin) — dashboards per service
+# plus a platform overview, all pre-provisioned with traces/logs/metrics
+# wired to Tempo/Loki/Prometheus.
 ```
+
+See **[LOCAL_DEV.md](LOCAL_DEV.md)** for the full port/URL table,
+what's wired up (OpenTelemetry tracing, Prometheus/Loki/Tempo, CPU/memory
+alerting at 50%), and the `test/` load/stress/spike scripts.
 
 Multi-stage Dockerfiles for all services: `node:20` build stage → `node:20-alpine` runtime (APIs), `node:20` → `nginxinc/nginx-unprivileged` (dashboard). About 80% smaller than single-stage builds. Dashboard uses nginx-unprivileged specifically so it runs as non-root on port 8080, satisfying the Kyverno disallow-root-containers policy.
 

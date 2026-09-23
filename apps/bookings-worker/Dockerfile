@@ -16,7 +16,7 @@ USER nodejs
 EXPOSE 9090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:9090/health || exit 1
-CMD ["node","src/worker.js"]
+CMD ["node","-r","./src/tracing.js","src/worker.js"]
         
 
 

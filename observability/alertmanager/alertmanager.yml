@@ -1,0 +1,35 @@
+global:
+  resolve_timeout: 5m
+  # Local SMTP catcher (Mailpit) — no real mail server needed for local
+  # dev. View delivered alert emails at http://localhost:8025
+  smtp_smarthost: 'mailpit:1025'
+  smtp_from: 'alerts@ticketops.local'
+  smtp_require_tls: false
+
+route:
+  receiver: default
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    email_configs:
+      - to: 'oncall@ticketops.local'
+        send_resolved: true
+    # For a real deployment, add slack_configs / webhook_configs /
+    # pagerduty_configs here too, and point smtp_smarthost at a real
+    # relay (with smtp_auth_username/password if it requires auth).
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'instance']

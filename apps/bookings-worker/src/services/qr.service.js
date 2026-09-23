@@ -3,7 +3,14 @@ const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/clien
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const logger = require('../utils/logger');
 
-const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-2' });
+// AWS_S3_ENDPOINT lets this point at LocalStack for docker-compose/local
+// dev (forcePathStyle is required for LocalStack-style endpoints). When
+// unset, this behaves exactly as before and talks to real AWS S3.
+const s3Endpoint = process.env.AWS_S3_ENDPOINT;
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || 'eu-west-2',
+  ...(s3Endpoint ? { endpoint: s3Endpoint, forcePathStyle: true } : {}),
+});
 const BUCKET = process.env.AWS_S3_BUCKET || 'ticketops-qr-codes-247';
 
 // generate QR code PNG buffer from booking data

@@ -1,0 +1,22 @@
+apiVersion: 1
+
+# Prometheus + Alertmanager own the CPU/memory/SLO alert rules (see
+# observability/prometheus/alerts.yml and observability/alertmanager) and
+# already email through Mailpit. This contact point is for any additional
+# Grafana-managed alert rules layered on top of the Prometheus/Loki/Tempo
+# datasources directly in the Grafana UI — it emails through the same
+# local Mailpit catcher, viewable at http://localhost:8025.
+contactPoints:
+  - orgId: 1
+    name: default-email
+    receivers:
+      - uid: default-receiver
+        type: email
+        settings:
+          addresses: oncall@ticketops.local
+          singleEmail: true
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: default-email
