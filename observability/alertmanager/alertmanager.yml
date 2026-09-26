@@ -6,6 +6,14 @@ global:
   smtp_from: 'alerts@ticketops.local'
   smtp_require_tls: false
 
+  # Using custom personal email
+  
+  #smtp_smarthost: 'smtp.gmail.com:587'
+  #smtp_from: 'shimdi247@gmail.com'
+  #smtp_auth_username: 'shimdi247@gmail.com'
+  #smtp_auth_password: 'YOUR_GMAIL_APP_PASSWORD'
+  #smtp_require_tls: true
+
 route:
   receiver: default
   group_by: ['alertname', 'severity']
@@ -22,6 +30,7 @@ receivers:
   - name: default
     email_configs:
       - to: 'oncall@ticketops.local'
+      #- to: 'shimdi247@gmail.com'
         send_resolved: true
     # For a real deployment, add slack_configs / webhook_configs /
     # pagerduty_configs here too, and point smtp_smarthost at a real
